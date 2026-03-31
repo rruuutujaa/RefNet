@@ -1,0 +1,729 @@
+
+RefNet
+Job Referral Platform
+Complete Engineering Specification  —  v1.0
+Backend
+Spring Boot 3	Database
+PostgreSQL + MongoDB	Real-time
+WebSocket + STOMP	Deploy
+Docker + Railway
+
+Table of Contents
+Table of Contents	1
+1. Project Overview	1
+1.1 Project Purpose	1
+1.2 Scope Boundaries	1
+2. User Roles & Permissions	1
+2.1 Candidate	1
+2.2 Employee (Referrer)	1
+2.3 HR Admin	1
+2.4 Super Admin	1
+3. Referral Lifecycle	1
+4. System Architecture	1
+4.1 Architecture Pattern — Modular Monolith	1
+4.2 Request Flow	1
+4.3 Module Breakdown	1
+5. Technology Stack — Complete Decision Log	1
+5.1 Backend	1
+5.2 Databases	1
+5.3 Frontend	1
+5.4 DevOps & Infrastructure	1
+6. Database Schema	1
+6.1 PostgreSQL — Core Tables	1
+users	1
+candidate_profiles	1
+companies	1
+jobs	1
+referral_requests  (candidate asks employee to refer them)	1
+referrals  (the actual referral submitted by employee)	1
+referral_status_history  (immutable timeline)	1
+messages  (WebSocket chat persisted to DB)	1
+notifications	1
+6.2 MongoDB — Audit Log Collection	1
+7. REST API Endpoints	1
+7.1 Auth	1
+7.2 User / Profile	1
+7.3 Jobs	1
+7.4 Referral Requests	1
+7.5 Referrals	1
+7.6 Messages	1
+7.7 Notifications	1
+7.8 Analytics	1
+8. WebSocket Architecture	1
+8.1 Why WebSocket for Chat	1
+8.2 STOMP on top of WebSocket	1
+8.3 Implementation	1
+8.4 Message Persistence	1
+9. Security Architecture	1
+9.1 JWT Flow	1
+9.2 Role-Based Access Control	1
+9.3 Additional Security Measures	1
+10. Async Processing & Notifications	1
+10.1 Why Async	1
+10.2 Implementation	1
+10.3 In-App Notification Bell	1
+11. Dashboards	1
+11.1 Candidate Dashboard	1
+11.2 Employee Dashboard	1
+11.3 HR Admin Dashboard	1
+11.4 Super Admin Dashboard	1
+12. Concurrency — Multi-Device Support	1
+12.1 Stateless Backend	1
+12.2 Database Concurrency	1
+12.3 WebSocket Multi-Device	1
+12.4 Redis Cache Invalidation	1
+13. Spring Boot Project Structure	1
+14. Deployment Architecture	1
+14.1 docker-compose.yml (Local Dev)	1
+14.2 Production (Railway)	1
+15. Resume & Interview Summary	1
+15.1 Resume Project Description	1
+15.2 Key Interview Talking Points	1
+16. Recommended Build Order	1
+
+
+1. Project Overview
+RefNet is a production-grade Job Referral Management Platform that mirrors how real-world referral systems operate at companies like Google, Amazon, TCS, and Infosys. It decouples the referral layer from the company's internal ATS (Applicant Tracking System), which is the correct real-world architecture.
+
+Core Philosophy: RefNet handles everything BEFORE and AROUND a referral.
+What happens inside the company's hiring pipeline after acceptance is the company's own ATS — NOT RefNet's concern.
+This mirrors exactly how LinkedIn Referrals, Rooftop Slushie, and Teamable work.
+
+1.1 Project Purpose
+This project is built as an internship learning vehicle to demonstrate mastery of real-world backend engineering concepts including:
+•	Distributed system architecture and domain-driven design
+•	Stateless JWT authentication with role-based access control
+•	Real-time bidirectional communication via WebSocket + STOMP
+•	Asynchronous processing and event-driven notifications
+•	Polyglot persistence (SQL + NoSQL together)
+•	Production deployment with Docker and cloud infrastructure
+
+1.2 Scope Boundaries
+Feature	Status
+Candidate profile & resume upload	IN SCOPE — core feature
+Job listings browsing	IN SCOPE — core feature
+Referral request flow (candidate → employee)	IN SCOPE — core feature
+Pre-referral chat (employee ↔ candidate)	IN SCOPE — WebSocket chat
+Referral submission by employee	IN SCOPE — core feature
+HR acknowledgement and final outcome	IN SCOPE — limited 4 statuses
+Notifications — email + in-app bell	IN SCOPE — async email + polling
+Admin panel — users, jobs, audit logs	IN SCOPE — super admin
+Full hiring pipeline (interviews, rounds)	OUT OF SCOPE — company's ATS
+Offer letter / onboarding	OUT OF SCOPE — company's ATS
+Payments / referral bonus disbursement	OUT OF SCOPE — future feature
+
+2. User Roles & Permissions
+The platform has four distinct roles with strictly enforced access control via Spring Security's @PreAuthorize annotations.
+
+2.1 Candidate
+The person being referred for a job.
+•	Register, verify email, complete profile (photo, skills, experience, LinkedIn)
+•	Upload resume PDF (stored in AWS S3 / Cloudinary)
+•	Browse open job listings
+•	Send referral requests to employees at a company, attaching their resume and a message
+•	Chat with the employee via WebSocket before the referral is submitted
+•	View referral status dashboard — who referred them, for which job, and current status
+•	Receive email notification on every status change
+•	Cannot see other candidates, other referrals, or any HR data
+
+2.2 Employee (Referrer)
+A company employee who refers candidates they know or who request referrals.
+•	Browse open job listings at their company
+•	Receive referral requests from candidates — see their profile, resume, and message
+•	Chat with candidate via WebSocket to assess their fit
+•	Accept request and submit formal referral (or decline with a reason)
+•	Directly refer a candidate they already know without waiting for a request
+•	View personal referral dashboard — all referrals submitted, their current status
+•	Get notified when their referred candidate is hired (for bonus tracking)
+•	Cannot see other employees' referrals or any HR pipeline data
+
+2.3 HR Admin
+Company HR who receives and processes referrals submitted through the platform.
+•	View all referrals submitted for their company in a paginated table
+•	Filter by job, status, date range, and referring employee
+•	Open any referral — view full candidate profile, resume download, recommendation note
+•	Move referral through the 4 platform statuses: SUBMITTED → UNDER REVIEW → ACCEPTED → HIRED / NOT SELECTED
+•	Add internal notes at each stage change
+•	Every status change triggers email to both candidate and referring employee
+•	View analytics dashboard — referral volume, conversion rate, top referrers, avg. time to outcome
+•	Cannot manage users, create jobs, or access other companies' data
+
+2.4 Super Admin
+Platform owner. Controls the entire RefNet instance.
+•	Create and manage company accounts on the platform
+•	Manage job listings — create, edit, close, delete for any company
+•	Manage all users — change roles, deactivate, reset passwords
+•	View master analytics dashboard across all companies
+•	View full immutable audit log (stored in MongoDB) — every action with timestamp and actor
+•	Optional: impersonate any user for debugging purposes
+
+3. Referral Lifecycle
+RefNet tracks a referral through exactly 4 statuses. Anything beyond ACCEPTED is the company's internal ATS responsibility.
+
+Status	Meaning	Trigger
+SUBMITTED	Employee has submitted the referral	Candidate + Employee get email
+UNDER REVIEW	HR has seen it, reviewing internally	Candidate + Employee get email
+ACCEPTED	HR confirms candidate is being processed	Candidate + Employee get email
+HIRED / NOT SELECTED	Final outcome — HR updates this once known	Candidate + Employee get email + bonus flag set
+
+Why only 4 statuses?
+Because RefNet is a referral platform, not an ATS. Detailed pipeline stages (screening, technical round, HR round) belong to the company's Workday/Greenhouse/internal system.
+This is a deliberate architectural decision — mention it explicitly in interviews.
+
+4. System Architecture
+4.1 Architecture Pattern — Modular Monolith
+RefNet is built as a Modular Monolith — a single Spring Boot application structured with clear domain boundaries. Each domain (Auth, User, Referral, Notification, Analytics) is an independent package with its own controllers, services, repositories, and DTOs. This means:
+•	It runs as one deployable unit (simple, no infrastructure overhead)
+•	Each domain is loosely coupled — could be extracted into a microservice later
+•	In interviews, say: 'I chose modular monolith over microservices because the team size and scale don't justify the operational complexity of microservices. The domain boundaries are clean enough to extract later if needed.'
+
+4.2 Request Flow
+Every HTTP request flows through the following layers in sequence:
+1.	Browser / Mobile Client sends HTTP request
+2.	CORS Filter — allows cross-origin requests from frontend domain
+3.	JWT Auth Filter — validates token, extracts user identity and role
+4.	Spring Security — checks @PreAuthorize on the controller method
+5.	Controller — receives request, validates DTO with @Valid
+6.	Service Layer — business logic, calls repository
+7.	Repository (JPA / MongoRepository) — queries database
+8.	Response — DTO returned as JSON, never the raw Entity
+
+4.3 Module Breakdown
+Module	Responsibility
+auth-module	Register, login, JWT generation, refresh token, email verification, password reset
+user-module	User profiles, roles, profile photo, resume upload, search
+job-module	Job listings CRUD, open/close status, company scoping
+referral-module	Referral request, referral submission, status transitions, notes
+chat-module	WebSocket STOMP config, message persistence, conversation threads
+notification-module	Email sending (async), in-app notification storage, read/unread tracking
+analytics-module	Aggregation queries, stats endpoints, chart data endpoints
+admin-module	Company management, user management, audit log viewer
+audit-module	Intercepts all write operations, logs to MongoDB automatically
+
+5. Technology Stack — Complete Decision Log
+Every technology choice is documented with the reasoning. Know this for interviews.
+
+5.1 Backend
+Technology	Purpose	Why chosen
+Spring Boot 3.x	Core framework	Industry standard. Auto-configuration, embedded Tomcat, production-ready. Spring Boot 3 requires Java 17+ — modern baseline.
+Spring Security 6	Auth & RBAC	Integrates directly with JWT filter chain. @PreAuthorize annotations enforce role checks at method level.
+Spring Data JPA	ORM for PostgreSQL	Removes boilerplate SQL. Entity relationships, JPQL queries, pagination built-in.
+Spring Data MongoDB	NoSQL for audit logs	Same programming model as JPA. Audit events are documents, not rows — NoSQL fits naturally.
+Spring WebSocket + STOMP	Real-time chat	Built into Spring. STOMP gives pub/sub semantics. SockJS fallback for older browsers.
+Spring Mail (JavaMail)	Email notifications	Wraps JavaMail. Configure SMTP once, inject MailSender everywhere. Used with @Async.
+Spring Cache + Redis	Caching layer	Job listings and notification counts are read-heavy. Redis reduces DB load by 90% on these endpoints.
+JWT (jjwt library)	Stateless auth	Access token (15 min) + Refresh token (7 days, HttpOnly cookie). Prevents XSS.
+ModelMapper / MapStruct	Entity-DTO mapping	Never expose JPA entities in API responses. DTOs decouple API contract from DB schema.
+Lombok	Reduce boilerplate	@Getter @Setter @Builder @Slf4j. Cleaner code, same bytecode.
+Swagger / SpringDoc OpenAPI	API docs	Auto-generates interactive API docs at /swagger-ui.html. Professional, zero extra work.
+BCryptPasswordEncoder	Password hashing	Industry standard. Work factor 10. Never store plain-text passwords.
+
+5.2 Databases
+Database	What it stores	Why chosen
+PostgreSQL 15	Primary relational DB	ACID compliant. Users, jobs, referrals, messages, notifications all have relationships. SQL is the right tool.
+MongoDB 7	Audit log store	Audit events are append-only, unstructured documents. NoSQL is the correct fit — no joins, no schema changes needed as event types evolve.
+Redis 7	Cache + session store	In-memory. Used for: job listing cache, notification count cache, rate limiting counters.
+
+5.3 Frontend
+Technology	Purpose	Why chosen
+HTML5 + CSS3 + Vanilla JS	Core UI	No framework overhead. Shows you understand the fundamentals. Fetch API for REST calls.
+Bootstrap 5	UI component library	Responsive grid, prebuilt components. Production speed without sacrificing cleanliness.
+Chart.js 4	Analytics charts	Lightweight. Bar charts (referral volume), pie charts (status breakdown), line charts (trends over time).
+SockJS + STOMP.js	WebSocket client	Connects to Spring WebSocket endpoint. STOMP.js handles subscription to message queues.
+Google Fonts — Inter	Typography	Clean, professional. Industry standard for dashboards.
+
+5.4 DevOps & Infrastructure
+Technology	Purpose	Why chosen
+Docker	Containerization	docker-compose.yml spins up app + PostgreSQL + MongoDB + Redis in one command.
+Railway / Render	Cloud deployment	Free tier. Auto-deploy from GitHub. Zero infrastructure management. Live URL for resume.
+AWS S3 / Cloudinary	File storage	Resume PDFs stored in object storage, not in DB. DB only stores the URL. Industry standard.
+GitHub Actions	CI/CD pipeline	Auto-runs tests on every push. Builds Docker image on merge to main. Shows DevOps awareness.
+Spring Profiles	Environment config	application-dev.yml (local DB), application-prod.yml (Railway). Secrets via environment variables, never hardcoded.
+
+6. Database Schema
+6.1 PostgreSQL — Core Tables
+
+users
+id              UUID PRIMARY KEY DEFAULT gen_random_uuid()
+full_name       VARCHAR(100) NOT NULL
+email           VARCHAR(150) UNIQUE NOT NULL
+password_hash   VARCHAR(255) NOT NULL
+role            ENUM('CANDIDATE','EMPLOYEE','HR_ADMIN','SUPER_ADMIN')
+company_id      UUID REFERENCES companies(id)   -- null for candidates
+is_verified     BOOLEAN DEFAULT false
+is_active       BOOLEAN DEFAULT true
+created_at      TIMESTAMP DEFAULT NOW()
+updated_at      TIMESTAMP DEFAULT NOW()
+
+candidate_profiles
+id              UUID PRIMARY KEY
+user_id         UUID REFERENCES users(id) UNIQUE
+phone           VARCHAR(20)
+location        VARCHAR(100)
+skills          TEXT[]   -- PostgreSQL array
+experience_years INT
+linkedin_url    VARCHAR(255)
+about_me        TEXT
+resume_url      VARCHAR(500)   -- S3 / Cloudinary URL
+profile_photo_url VARCHAR(500)
+is_open_to_referral BOOLEAN DEFAULT true
+
+companies
+id              UUID PRIMARY KEY
+name            VARCHAR(150) NOT NULL
+domain          VARCHAR(100)   -- used for email domain validation
+logo_url        VARCHAR(500)
+created_at      TIMESTAMP DEFAULT NOW()
+
+jobs
+id              UUID PRIMARY KEY
+company_id      UUID REFERENCES companies(id)
+title           VARCHAR(150) NOT NULL
+department      VARCHAR(100)
+description     TEXT
+skills_required TEXT[]
+experience_min  INT
+status          ENUM('OPEN','CLOSED','ON_HOLD') DEFAULT 'OPEN'
+created_by      UUID REFERENCES users(id)
+created_at      TIMESTAMP DEFAULT NOW()
+
+referral_requests  (candidate asks employee to refer them)
+id              UUID PRIMARY KEY
+candidate_id    UUID REFERENCES users(id)
+employee_id     UUID REFERENCES users(id)
+job_id          UUID REFERENCES jobs(id)
+message         TEXT   -- candidate's pitch message
+status          ENUM('PENDING','ACCEPTED','DECLINED') DEFAULT 'PENDING'
+decline_reason  TEXT
+created_at      TIMESTAMP DEFAULT NOW()
+
+referrals  (the actual referral submitted by employee)
+id              UUID PRIMARY KEY
+referral_request_id UUID REFERENCES referral_requests(id)  -- nullable
+referrer_id     UUID REFERENCES users(id)
+candidate_id    UUID REFERENCES users(id)
+job_id          UUID REFERENCES jobs(id)
+recommendation_note TEXT
+relationship    VARCHAR(100)   -- 'Ex-colleague at Wipro'
+status          ENUM('SUBMITTED','UNDER_REVIEW','ACCEPTED','HIRED','NOT_SELECTED')
+submitted_at    TIMESTAMP DEFAULT NOW()
+updated_at      TIMESTAMP DEFAULT NOW()
+
+referral_status_history  (immutable timeline)
+id              UUID PRIMARY KEY
+referral_id     UUID REFERENCES referrals(id)
+old_status      VARCHAR(50)
+new_status      VARCHAR(50)
+note            TEXT
+changed_by      UUID REFERENCES users(id)
+changed_at      TIMESTAMP DEFAULT NOW()
+
+messages  (WebSocket chat persisted to DB)
+id              UUID PRIMARY KEY
+conversation_id UUID   -- composite: referral_request_id
+sender_id       UUID REFERENCES users(id)
+receiver_id     UUID REFERENCES users(id)
+content         TEXT NOT NULL
+is_read         BOOLEAN DEFAULT false
+sent_at         TIMESTAMP DEFAULT NOW()
+
+notifications
+id              UUID PRIMARY KEY
+user_id         UUID REFERENCES users(id)
+type            ENUM('REFERRAL_SUBMITTED','STATUS_CHANGED','REQUEST_RECEIVED','MESSAGE_RECEIVED')
+title           VARCHAR(200)
+body            TEXT
+reference_id    UUID   -- referral_id or message_id
+is_read         BOOLEAN DEFAULT false
+created_at      TIMESTAMP DEFAULT NOW()
+
+6.2 MongoDB — Audit Log Collection
+Every write operation on the platform is logged here automatically via a Spring AOP aspect. This collection is append-only and never modified.
+
+{
+  _id:          ObjectId (auto),
+  event_type:   'REFERRAL_SUBMITTED' | 'STATUS_CHANGED' | 'USER_CREATED' | ...
+  actor_id:     UUID of the user who performed the action,
+  actor_role:   'HR_ADMIN' | 'EMPLOYEE' | ...
+  entity_type:  'REFERRAL' | 'USER' | 'JOB' | ...
+  entity_id:    UUID of the affected entity,
+  payload:      { ...whatever changed, old value, new value },
+  ip_address:   '192.168.1.1',
+  timestamp:    ISODate
+}
+
+7. REST API Endpoints
+All endpoints are prefixed with /api/v1. All responses follow a standard envelope: { success, data, message, timestamp }.
+
+7.1 Auth
+Endpoint	Description
+POST /auth/register	Register new user (any role)
+POST /auth/login	Login — returns JWT access token
+POST /auth/refresh	Get new access token using refresh token
+POST /auth/logout	Invalidate refresh token
+GET /auth/verify-email?token=	Verify email from link
+POST /auth/forgot-password	Send password reset email
+POST /auth/reset-password	Reset password with token
+
+7.2 User / Profile
+Endpoint	Description
+GET /users/me	Get own profile
+PUT /users/me/profile	Update candidate profile
+POST /users/me/resume	Upload resume PDF (multipart)
+POST /users/me/photo	Upload profile photo (multipart)
+GET /users/search?q=&company=	Search candidates (employee use)
+GET /users/{id}	Get public profile of any user
+
+7.3 Jobs
+Endpoint	Description
+GET /jobs?company=&status=&page=&size=	List all open jobs (paginated)
+GET /jobs/{id}	Get job details
+POST /jobs	Create job (HR Admin / Super Admin)
+PUT /jobs/{id}	Update job (HR Admin / Super Admin)
+PATCH /jobs/{id}/status	Open / Close / Hold a job
+DELETE /jobs/{id}	Delete job (Super Admin only)
+
+7.4 Referral Requests
+Endpoint	Description
+POST /referral-requests	Candidate sends referral request to employee
+GET /referral-requests/received	Employee sees all requests they received
+GET /referral-requests/sent	Candidate sees requests they sent
+PATCH /referral-requests/{id}/accept	Employee accepts request
+PATCH /referral-requests/{id}/decline	Employee declines with reason
+
+7.5 Referrals
+Endpoint	Description
+POST /referrals	Employee submits a referral
+GET /referrals/mine	Employee sees all referrals they submitted
+GET /referrals/received	Candidate sees referrals made for them
+GET /referrals?company=&status=&page=	HR sees all referrals for their company
+PATCH /referrals/{id}/status	HR updates referral status
+GET /referrals/{id}/history	Full status timeline for a referral
+
+7.6 Messages
+Endpoint	Description
+GET /messages/conversations	List all conversations for current user
+GET /messages/conversations/{id}	Load message history (paginated)
+PATCH /messages/conversations/{id}/read	Mark all messages in conversation as read
+WebSocket: /ws (connect)	STOMP WebSocket handshake endpoint
+Subscribe: /user/queue/messages	Private channel — receive new messages
+Send: /app/chat.send	Send a message via STOMP
+
+7.7 Notifications
+Endpoint	Description
+GET /notifications?page=&size=	Get paginated notifications
+GET /notifications/unread-count	Get count for bell badge (polled every 30s)
+PATCH /notifications/{id}/read	Mark one notification as read
+PATCH /notifications/read-all	Mark all as read
+
+7.8 Analytics
+Endpoint	Description
+GET /analytics/hr/overview	HR dashboard — totals, conversion rate, avg time
+GET /analytics/hr/referrals-over-time	Monthly referral volume (line chart data)
+GET /analytics/hr/status-breakdown	Pie chart data by status
+GET /analytics/hr/top-referrers	Employee leaderboard
+GET /analytics/admin/platform-overview	Super Admin — cross-company stats
+GET /analytics/employee/my-stats	Employee personal referral stats
+
+8. WebSocket Architecture
+8.1 Why WebSocket for Chat
+HTTP is a request-response protocol. The client always initiates. For chat, the server needs to PUSH a message to the receiver the moment it arrives — HTTP cannot do this without polling (client asks every N seconds — wasteful and slow).
+WebSocket opens a persistent TCP connection between client and server. Either side can send data at any time. This is the correct protocol for any real-time feature.
+
+8.2 STOMP on top of WebSocket
+Raw WebSocket is a low-level byte pipe — it has no concept of destinations, routing, or pub/sub. STOMP (Simple Text Oriented Messaging Protocol) adds:
+•	SUBSCRIBE to a destination (channel)
+•	SEND to a destination
+•	MESSAGE pushed from server to subscribers
+Think of WebSocket as a road and STOMP as the traffic rules on that road.
+
+8.3 Implementation
+// Server config (Spring Boot)
+@Configuration @EnableWebSocketMessageBroker
+public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+  @Override public void registerStompEndpoints(StompEndpointRegistry r) {
+    r.addEndpoint('/ws').setAllowedOriginPatterns('*').withSockJS();
+  }
+
+  @Override public void configureMessageBroker(MessageBrokerRegistry r) {
+    r.enableSimpleBroker('/user', '/topic');
+    r.setApplicationDestinationPrefixes('/app');
+    r.setUserDestinationPrefix('/user');
+  }
+}
+
+// When employee sends message, server delivers to candidate's private queue:
+messagingTemplate.convertAndSendToUser(
+  receiverId, '/queue/messages', new MessageDTO(...)
+);
+
+// Frontend (JavaScript)
+const socket = new SockJS('/ws');
+const stompClient = Stomp.over(socket);
+stompClient.connect({'Authorization': 'Bearer ' + token}, () => {
+  stompClient.subscribe('/user/queue/messages', (msg) => {
+    const message = JSON.parse(msg.body);
+    renderNewMessage(message);  // instant, no polling
+  });
+});
+
+8.4 Message Persistence
+Every WebSocket message sent through the platform is ALSO saved to the messages table in PostgreSQL. This ensures:
+•	Chat history is available when the user refreshes or reconnects
+•	Messages are not lost if the receiver is offline — they load history on next login
+•	The chat endpoint GET /messages/conversations/{id} returns full history
+
+9. Security Architecture
+9.1 JWT Flow
+9.	User logs in with email + password
+10.	Server verifies password against BCrypt hash in DB
+11.	Server issues: Access Token (JWT, 15 min expiry) + Refresh Token (UUID, 7 days, stored in DB)
+12.	Access Token returned in response body. Refresh Token set as HttpOnly cookie
+13.	Frontend stores Access Token in memory (NOT localStorage — XSS vulnerable)
+14.	Every API request sends: Authorization: Bearer <access_token>
+15.	JWT Filter validates token signature, expiry, and extracts userId + role
+16.	When Access Token expires, frontend calls POST /auth/refresh — server validates Refresh Token cookie and issues new Access Token
+17.	Logout: server deletes Refresh Token from DB. Old Access Tokens are short-lived so they expire naturally.
+
+Interview talking point:
+Access token in memory (not localStorage) prevents XSS attacks from stealing tokens.
+Refresh token in HttpOnly cookie prevents JavaScript access — CSRF protection via SameSite=Strict cookie attribute.
+Short access token lifetime (15 min) limits the damage window if a token is ever leaked.
+
+9.2 Role-Based Access Control
+Every controller method has @PreAuthorize enforcing the minimum required role:
+@GetMapping('/referrals')
+@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+public ResponseEntity<Page<ReferralDTO>> getAllReferrals(...) { ... }
+
+@PatchMapping('/referrals/{id}/status')
+@PreAuthorize("hasRole('HR_ADMIN')")
+public ResponseEntity<ReferralDTO> updateStatus(...) { ... }
+
+9.3 Additional Security Measures
+•	Rate limiting on login endpoint — max 5 failed attempts, then 15-minute lockout (using Redis counter)
+•	Email verification required before first login
+•	Password reset tokens expire in 1 hour
+•	File upload validation — only PDF allowed for resumes, max 5MB, MIME type checked server-side
+•	All inputs validated with @Valid and custom validators
+•	SQL injection impossible — JPA parameterised queries only
+•	CORS configured to allow only the frontend domain
+•	Secrets (DB passwords, JWT secret, S3 keys) only via environment variables — never in source code
+
+10. Async Processing & Notifications
+10.1 Why Async
+When HR changes a referral status, the API must:
+•	Update the database
+•	Send an email to the candidate
+•	Send an email to the referring employee
+•	Create in-app notifications for both
+If all of this is done synchronously in the HTTP thread, the API response takes 2-3 seconds (SMTP is slow). The user sees a frozen UI. This is unacceptable.
+With @Async, the API updates the DB and returns a response in ~50ms. The emails and notifications are processed in a background thread pool — the user never waits.
+
+10.2 Implementation
+@Service
+public class NotificationService {
+
+  @Async('notificationExecutor')
+  public void sendStatusChangeNotification(Referral referral, String newStatus) {
+    // This runs in background thread — HTTP response already sent
+    emailService.sendToCandidate(referral, newStatus);
+    emailService.sendToReferrer(referral, newStatus);
+    inAppNotificationService.createForBoth(referral, newStatus);
+  }
+}
+
+// Thread pool config
+@Bean('notificationExecutor')
+public Executor notificationExecutor() {
+  ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+  executor.setCorePoolSize(4);
+  executor.setMaxPoolSize(10);
+  executor.setQueueCapacity(500);
+  return executor;
+}
+
+10.3 In-App Notification Bell
+The notification bell in the navbar shows an unread count badge. This is implemented via simple REST polling — NOT WebSocket.
+Frontend calls GET /notifications/unread-count every 30 seconds. The count is cached in Redis (invalidated when a new notification is created). The DB is rarely hit. This is efficient and simple — no WebSocket overhead for a count number.
+
+11. Dashboards
+11.1 Candidate Dashboard
+•	Profile completion progress bar
+•	Active referrals list with current status badge
+•	Referral status timeline for each referral (visual step indicator)
+•	Referral requests sent — pending / accepted / declined
+•	Messages — unread count, click to open chat
+•	Recent notifications feed
+
+11.2 Employee Dashboard
+•	Referral requests received — candidate cards with photo, skills, resume download
+•	All referrals submitted — table with status badges
+•	Quick stats: total referred, accepted, hired, conversion rate
+•	Messages — active conversations
+•	Notification feed
+
+11.3 HR Admin Dashboard
+•	Total referrals this month (big number card)
+•	Conversion rate: submitted → hired (percentage card)
+•	Average days from submission to outcome (number card)
+•	Referrals over time — line chart (Chart.js) — last 6 months
+•	Status breakdown — pie chart (Chart.js)
+•	Top referrers — employee leaderboard table
+•	All referrals — paginated, filterable, sortable data table
+•	Each referral expandable — full candidate info, resume, notes, history
+
+11.4 Super Admin Dashboard
+•	Platform overview — total companies, users, referrals (across all companies)
+•	Company activity table — most active companies
+•	User management — search, change role, deactivate
+•	Job management — all jobs across all companies
+•	Audit log viewer — filterable, searchable, timestamped
+
+12. Concurrency — Multi-Device Support
+You mentioned testing with 2-3 devices simultaneously. Here is how the platform handles this correctly.
+
+12.1 Stateless Backend
+Because the backend is stateless (JWT-based auth, no server-side session), any number of devices can be logged in with the same or different accounts simultaneously with no conflict. Each request carries its own JWT — the server processes them independently.
+
+12.2 Database Concurrency
+PostgreSQL handles concurrent writes with MVCC (Multi-Version Concurrency Control). Two users updating different records simultaneously — no issue. Two users updating the same record — PostgreSQL serializes with row-level locking. The last writer wins, which is acceptable for this use case.
+For referral status updates, optimistic locking is used:
+@Entity
+public class Referral {
+  @Version
+  private Long version;  // JPA detects concurrent modification
+}
+
+12.3 WebSocket Multi-Device
+If a user is logged into two devices simultaneously, both devices have WebSocket connections open. When a message arrives, Spring's user-destination routing delivers it to ALL active sessions for that user — both devices receive it. This is exactly how WhatsApp Web works.
+
+12.4 Redis Cache Invalidation
+If one device triggers an action that invalidates a cache (e.g., HR admin adds a job on device A), the Redis cache for job listings is cleared immediately. Device B's next API call fetches fresh data from PostgreSQL and repopulates the cache.
+
+13. Spring Boot Project Structure
+src/main/java/com/refnet/
+├── config/
+│   ├── SecurityConfig.java
+│   ├── WebSocketConfig.java
+│   ├── RedisConfig.java
+│   ├── AsyncConfig.java
+│   └── OpenApiConfig.java
+├── common/
+│   ├── ApiResponse.java           (standard response envelope)
+│   ├── GlobalExceptionHandler.java (@ControllerAdvice)
+│   ├── AuditAspect.java            (AOP — auto-logs to MongoDB)
+│   └── JwtAuthFilter.java
+├── modules/
+│   ├── auth/
+│   │   ├── AuthController.java
+│   │   ├── AuthService.java
+│   │   ├── dto/  (LoginRequest, RegisterRequest, TokenResponse)
+│   │   └── model/ (RefreshToken.java)
+│   ├── user/
+│   │   ├── UserController.java
+│   │   ├── UserService.java
+│   │   ├── UserRepository.java
+│   │   ├── dto/
+│   │   └── model/ (User.java, CandidateProfile.java)
+│   ├── job/
+│   ├── referral/
+│   │   ├── ReferralController.java
+│   │   ├── ReferralRequestController.java
+│   │   ├── ReferralService.java
+│   │   ├── ReferralRepository.java
+│   │   └── model/ (Referral.java, ReferralStatusHistory.java)
+│   ├── chat/
+│   │   ├── ChatController.java     (WebSocket @MessageMapping)
+│   │   ├── MessageService.java
+│   │   └── model/ (Message.java)
+│   ├── notification/
+│   ├── analytics/
+│   └── admin/
+src/main/resources/
+├── application.yml
+├── application-dev.yml
+├── application-prod.yml
+└── templates/email/
+    ├── referral-submitted.html
+    ├── status-changed.html
+    └── welcome.html
+
+14. Deployment Architecture
+14.1 docker-compose.yml (Local Dev)
+version: '3.8'
+services:
+  app:
+    build: .
+    ports: ['8080:8080']
+    environment:
+      - DB_URL=jdbc:postgresql://postgres:5432/refnet
+      - MONGO_URI=mongodb://mongo:27017/refnet_audit
+      - REDIS_HOST=redis
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on: [postgres, mongo, redis]
+  postgres:
+    image: postgres:15
+    environment: { POSTGRES_DB: refnet, POSTGRES_PASSWORD: ${DB_PASS} }
+    volumes: ['postgres_data:/var/lib/postgresql/data']
+  mongo:
+    image: mongo:7
+    volumes: ['mongo_data:/data/db']
+  redis:
+    image: redis:7-alpine
+
+14.2 Production (Railway)
+•	Spring Boot app deployed as Docker container on Railway
+•	PostgreSQL — Railway managed PostgreSQL add-on
+•	MongoDB — MongoDB Atlas free tier (M0 cluster)
+•	Redis — Railway Redis add-on OR Upstash Redis (free tier)
+•	File storage — Cloudinary free tier (resume PDFs, profile photos)
+•	Email — Gmail SMTP with App Password OR Brevo (Sendinblue) free tier — 300 emails/day
+•	GitHub Actions automatically builds and deploys on push to main branch
+
+15. Resume & Interview Summary
+15.1 Resume Project Description
+RefNet — Job Referral Management Platform
+Java · Spring Boot 3 · Spring Security · PostgreSQL · MongoDB · Redis · WebSocket · Docker
+
+Built a full-stack referral platform with JWT authentication (access + refresh tokens), role-based
+access control (Candidate, Employee, HR Admin, Super Admin), and real-time chat using WebSocket
+with STOMP protocol. Features async email notifications via JavaMailSender with a dedicated thread
+pool, Redis caching for high-read endpoints, polyglot persistence (PostgreSQL + MongoDB for audit
+logs), resume upload to AWS S3, and an analytics dashboard with Chart.js. Containerized with Docker
+Compose and deployed on Railway with a GitHub Actions CI/CD pipeline. REST API documented with
+Swagger/OpenAPI. Designed as a modular monolith with clean domain boundaries.
+
+15.2 Key Interview Talking Points
+Question	Your Answer
+Why modular monolith over microservices?	Team size and scale don't justify microservices overhead. Clean domain boundaries allow future extraction.
+Why only 4 referral statuses?	RefNet is a referral platform, not an ATS. The hiring pipeline is the company's concern. Deliberate decoupling.
+Why WebSocket only for chat?	Chat needs real-time push. Status change notifications are async — email is sufficient and correct here.
+Why access token in memory, not localStorage?	localStorage is XSS-vulnerable. Memory storage + HttpOnly cookie for refresh token is the secure pattern.
+Why MongoDB for audit logs?	Audit events are unstructured, append-only documents. NoSQL is the natural fit — no schema migrations needed.
+Why Redis for caching?	Job listings are read far more than written. Redis reduces DB load and improves response time on read-heavy endpoints.
+How does concurrency work?	Stateless JWT backend handles multiple devices. Optimistic locking prevents concurrent write conflicts. WebSocket delivers to all active sessions.
+Why async notifications?	SMTP is slow I/O. Synchronous sending would block HTTP threads and degrade API performance.
+
+16. Recommended Build Order
+Build in this exact order so every layer is testable before building the next.
+
+18.	Project setup — Spring Boot init, dependencies, folder structure, Docker Compose
+19.	Database schema — PostgreSQL tables + indexes, MongoDB connection
+20.	Auth module — register, email verification, login, JWT, refresh token
+21.	User module — profile CRUD, resume upload (local file storage first, S3 later)
+22.	Job module — job listings CRUD
+23.	Referral request flow — candidate sends request, employee accepts/declines
+24.	Referral submission flow — employee submits referral, HR views and updates status
+25.	Notification module — async email + in-app notifications
+26.	WebSocket chat — STOMP config, message send/receive, history
+27.	Analytics module — aggregation queries, chart data endpoints
+28.	Admin module — user management, audit log viewer
+29.	Frontend — HTML/CSS dashboards, Chart.js, WebSocket client
+30.	Security hardening — rate limiting, input validation, CORS finalization
+31.	Docker finalization — Dockerfile, docker-compose.yml, environment variables
+32.	Deploy to Railway — live URL, GitHub Actions CI/CD
+33.	Swagger docs finalization — all endpoints documented
+
+End of Document — RefNet Engineering Specification v1.0
