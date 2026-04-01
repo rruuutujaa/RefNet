@@ -2,13 +2,47 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RefNet - Frontend</title>
-    <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #fdf5e6; color: #b8860b; }
-        h1 { border: 2px solid #b8860b; padding: 20px; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RefNet - Sign In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="./assets/css/main.css" rel="stylesheet">
 </head>
-<body>
-    <h1>RefNet Frontend: Construction in Progress...</h1>
+<body class="auth-body">
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-8 col-lg-5">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-4 p-lg-5">
+                        <h1 class="h3 fw-bold mb-1">RefNet</h1>
+                        <p class="text-secondary mb-4">Job Referral Platform Dashboard Access</p>
+                        <form id="login-form" class="vstack gap-3">
+                            <div>
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" id="email" required>
+                            </div>
+                            <div>
+                                <label class="form-label">Password</label>
+                                <input type="password" class="form-control" id="password" required>
+                            </div>
+                            <button class="btn btn-primary w-100" type="submit" id="login-btn">Sign In</button>
+                        </form>
+                        <div id="auth-error" class="alert alert-danger mt-3 d-none"></div>
+                        <hr>
+                        <p class="small text-secondary mb-2">Quick local preview without auth:</p>
+                        <div class="d-grid gap-2">
+                            <a href="./pages/candidate-dashboard.html" class="btn btn-outline-secondary btn-sm">Candidate Dashboard</a>
+                            <a href="./pages/employee-dashboard.html" class="btn btn-outline-secondary btn-sm">Employee Dashboard</a>
+                            <a href="./pages/hr-admin-dashboard.html" class="btn btn-outline-secondary btn-sm">HR Admin Dashboard</a>
+                            <a href="./pages/super-admin-dashboard.html" class="btn btn-outline-secondary btn-sm">Super Admin Dashboard</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="./pages/js/auth.js"></script>
 </body>
 </html>
